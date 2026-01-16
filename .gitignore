@@ -1,0 +1,16 @@
+# === Backend ===
+target
+.classpath
+.project
+.settings
+.log
+
+# === Angular Frontend ===
+node_modules
+dist
+.angular
+.cache
+
+# === OS Files ===
+.DS_Store
+Thumbs.db
