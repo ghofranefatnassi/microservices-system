@@ -29,7 +29,12 @@ public class ReservoirController {
     public ResponseEntity<Object> create(@RequestBody Reservoir reservoir) {
         return reservoirService.createReservoir(reservoir);
     }
-    
+    @GetMapping("/{id}/available-volume")
+    public ResponseEntity<Double> getAvailableVolume(@PathVariable Long id) {
+        return reservoirService.getReservoirById(id)
+                .map(reservoir -> ResponseEntity.ok(reservoir.getNiveauActuel()))
+                .orElse(ResponseEntity.notFound().build());
+    }
     @GetMapping
     public ResponseEntity<List<Reservoir>> getAllReservoirs() {
         return ResponseEntity.ok(reservoirService.getAllReservoirs());

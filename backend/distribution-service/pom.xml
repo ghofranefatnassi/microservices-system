@@ -9,7 +9,7 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>itbs.GhofraneFatnassi</groupId>
-	<artifactId>ghofraneFatnassi</artifactId>
+	<artifactId>distribution-service</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>distribution-service</name>
 	<description>Demo project for Spring Boot</description>

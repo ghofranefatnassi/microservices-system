@@ -7,6 +7,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 @FeignClient(name = "reservoir-service")
 
 public interface ReservoirFeign {
-	@GetMapping("/reservoirs/{id}/available-volume")
+	@GetMapping("/api/reservoirs/{id}/available-volume") 
     Double getAvailableVolume(@PathVariable Long id);
 }
