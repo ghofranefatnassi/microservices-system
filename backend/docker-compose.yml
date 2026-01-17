@@ -1,74 +1,185 @@
+version: '3.8'
+
 services:
-  mysql:
+  # --- DATABASES ---
+  mysql-reservoir:
     image: mysql:8
-    container_name: mysql-db
+    container_name: mysql-reservoir
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: "docker123"
       MYSQL_DATABASE: reservoir_db
     ports:
       - "3307:3306"
     volumes:
-      - mysql-data:/var/lib/mysql
+      - mysql-reservoir-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pdocker123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: --default-authentication-plugin=mysql_native_password
+    restart: unless-stopped
 
+  mysql-distribution:
+    image: mysql:8
+    container_name: mysql-distribution
+    environment:
+      MYSQL_ROOT_PASSWORD: "docker123"
+      MYSQL_DATABASE: distribution_db
+    ports:
+      - "3308:3306"
+    volumes:
+      - mysql-distribution-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pdocker123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: --default-authentication-plugin=mysql_native_password
+    restart: unless-stopped
+
+  # --- CONFIG SERVER ---
   config-server:
     build: ./config-server
     container_name: config-server
     ports:
       - "9999:9999"
-    depends_on:
-      - mysql
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_CLOUD_CONFIG_SERVER_GIT_URI: https://gitlab.com/ghofranefatnassi/water-management-portal.git
+      SPRING_CLOUD_CONFIG_SERVER_GIT_USERNAME: oauth2
+      SPRING_CLOUD_CONFIG_SERVER_GIT_PASSWORD: glpat-KMqFWbrx8fao_D8K-49uvW86MQp1OmpvNmo1Cw.01.121vtcbfy
+      SERVER_PORT: 9999
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c 'echo > /dev/tcp/localhost/9999' || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
 
+  # --- EUREKA SERVER ---
   eureka-server:
     build: ./discovery-server-eureka
     container_name: eureka-server
     ports:
       - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_APPLICATION_NAME: discovery-server-eureka
+      EUREKA_CLIENT_REGISTERWITH_EUREKA: "false"
+      EUREKA_CLIENT_FETCHREGISTRY: "false"
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8080/eureka
+      SERVER_PORT: 8080
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:9999
     depends_on:
-      - config-server
+      config-server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f http://localhost:8080/ || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
 
+  # --- RESERVOIR SERVICE ---
   reservoir-service:
     build: ./reservoir-service
     container_name: reservoir-service
     ports:
       - "8081:8081"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/reservoir_db
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-reservoir:3306/reservoir_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: root
-      SPRING_CONFIG_URI: http://config-server:9999
+      SPRING_DATASOURCE_PASSWORD: "docker123"
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:9999
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8080/eureka
+      SERVER_PORT: 8081
+      EUREKA_INSTANCE_PREFERIPADDRESS: "true"
+      EUREKA_INSTANCE_HOSTNAME: reservoir-service
     depends_on:
-      - eureka-server
-      - config-server
-      - mysql
+      mysql-reservoir:
+        condition: service_started
+      config-server:
+        condition: service_started
+      eureka-server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c 'echo > /dev/tcp/localhost/8081' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    restart: unless-stopped
 
+  # --- DISTRIBUTION SERVICE ---
   distribution-service:
     build: ./distribution-service
     container_name: distribution-service
     ports:
       - "8083:8083"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/reservoir_db
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-distribution:3306/distribution_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: root
-      SPRING_CONFIG_URI: http://config-server:9999
+      SPRING_DATASOURCE_PASSWORD: "docker123"
+      SPRING_RABBITMQ_ADDRESSES: amqps://pbzlasfj:3Pf5D-qcPoO8waIfD8Nj2hS3-lzkRtC5@horse.lmq.cloudamqp.com/pbzlasfj
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:9999
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8080/eureka
+      SERVER_PORT: 8083
+      EUREKA_INSTANCE_PREFERIPADDRESS: "true"
+      EUREKA_INSTANCE_HOSTNAME: distribution-service
     depends_on:
-      - eureka-server
-      - reservoir-service
-      - config-server
-      - mysql
+      mysql-distribution:
+        condition: service_started
+      config-server:
+        condition: service_started
+      eureka-server:
+        condition: service_started
+      reservoir-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c 'echo > /dev/tcp/localhost/8083' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    restart: unless-stopped
 
+  # --- GATEWAY ---
   gateway:
     build: ./GATEWAY
     container_name: gateway
     ports:
       - "9095:9095"
     environment:
-      SPRING_CONFIG_URI: http://config-server:9999
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:9999
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8080/eureka
+      SERVER_PORT: 9095
+      EUREKA_INSTANCE_PREFERIPADDRESS: "true"
+      EUREKA_INSTANCE_HOSTNAME: gateway
     depends_on:
-      - eureka-server
-      - reservoir-service
-      - distribution-service
-      - config-server
+      eureka-server:
+        condition: service_started
+      config-server:
+        condition: service_started
+      reservoir-service:
+        condition: service_started
+      distribution-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c 'echo > /dev/tcp/localhost/9095' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    restart: unless-stopped
 
 volumes:
-  mysql-data:
+  mysql-reservoir-data:
+  mysql-distribution-data:
